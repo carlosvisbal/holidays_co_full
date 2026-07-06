@@ -22,6 +22,7 @@ setuptools.setup(
         "ley emiliani", "nomina", "calendario laboral",
     ],
     packages=setuptools.find_packages(),
+    package_data={"holidays_co_full": ["py.typed"]},
     python_requires=">=3.7",
     install_requires=[],
     license="MIT",
@@ -41,5 +42,6 @@ setuptools.setup(
         "Topic :: Office/Business :: Scheduling",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Natural Language :: Spanish",
+        "Typing :: Typed",
     ],
 )

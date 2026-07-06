@@ -48,10 +48,17 @@ Ejemplo de uso::
 :license: MIT, ver el archivo LICENSE del proyecto.
 """
 
+from __future__ import annotations
+
 import calendar
 from collections import namedtuple
 from datetime import date, timedelta, datetime
 from functools import lru_cache
+from typing import List, Optional, Union
+
+#: Acepta tanto ``date`` como ``datetime`` en las funciones públicas
+#: (de este último se ignora la hora).
+DateLike = Union[date, datetime]
 
 #: Tamaño máximo de los cachés internos por año (``_get_holidays`` y
 #: ``_holiday_dates``). El rango soportado tiene 8030 años posibles
@@ -72,6 +79,10 @@ LEY_EMILIANI_YEAR = 1984
 #: funciones públicas. ``date`` es un :class:`datetime.date` con la fecha
 #: efectiva de celebración y ``celebration`` el nombre oficial del festivo.
 _nt_holiday = namedtuple("Holiday", ["date", "celebration"])
+
+#: Alias público de :data:`_nt_holiday`, para poder importarlo como
+#: ``from holidays_co_full import Holiday`` (anotaciones de tipo, mypy, IDEs).
+Holiday = _nt_holiday
 
 #: Definición de un festivo de fecha fija en el calendario. ``month`` y
 #: ``day`` son enteros; ``days_to_sum`` es ``calendar.MONDAY`` si el
@@ -141,7 +152,7 @@ HOLIDAYS = [
     _nt_holiday_stock(month=11, day=11, days_to_sum=calendar.MONDAY, celebration="Independencia de Cartagena")
 ]
 
-def next_weekday(d, weekday):
+def next_weekday(d: date, weekday: int) -> date:
     """Devuelve la fecha del próximo ``weekday`` estrictamente posterior a ``d``.
 
     Si ``d`` ya cae en el día de la semana buscado, devuelve el de la
@@ -162,7 +173,7 @@ def next_weekday(d, weekday):
         days_ahead += 7
     return d + timedelta(days_ahead)
 
-def calc_easter(year):
+def calc_easter(year: int) -> date:
     """Calcula la fecha del Domingo de Pascua (occidental) para un año.
 
     Implementa el algoritmo de computus anónimo/Meeus.
@@ -186,7 +197,7 @@ def calc_easter(year):
     return date(year, month, day)
 
 @lru_cache(maxsize=_YEAR_CACHE_SIZE)
-def _get_holidays(year):
+def _get_holidays(year: int) -> tuple:
     """Calcula y cachea los festivos de un año ya validado.
 
     Función interna: asume que ``year`` es un ``int`` dentro del rango
@@ -227,7 +238,7 @@ def _get_holidays(year):
     holidays.sort(key=lambda holiday: holiday.date)
     return tuple(holidays)
 
-def get_colombia_holidays_by_year(year):
+def get_colombia_holidays_by_year(year: Union[int, str]) -> List[Holiday]:
     """Devuelve los festivos no laborables de Colombia para un año.
 
     Las fechas devueltas son las de celebración efectiva y con precisión
@@ -271,7 +282,7 @@ def get_colombia_holidays_by_year(year):
     return list(_get_holidays(year))
 
 @lru_cache(maxsize=_YEAR_CACHE_SIZE)
-def _holiday_dates(year):
+def _holiday_dates(year: int) -> frozenset:
     """Conjunto cacheado de las fechas festivas de un año ya validado.
 
     Permite consultas de pertenencia en O(1) para las funciones de días
@@ -283,7 +294,7 @@ def _holiday_dates(year):
     """
     return frozenset(holiday.date for holiday in _get_holidays(year))
 
-def _ensure_date(d):
+def _ensure_date(d: DateLike) -> date:
     """Valida y normaliza una fecha de entrada del API público.
 
     :param d: valor a validar.
@@ -300,7 +311,7 @@ def _ensure_date(d):
         raise ValueError("El año debe ser mayor a 1969 y menor a 10000")
     return d
 
-def is_holiday_date(d):
+def is_holiday_date(d: DateLike) -> bool:
     """Indica si una fecha es un día festivo no laborable en Colombia.
 
     Ejemplo::
@@ -320,7 +331,7 @@ def is_holiday_date(d):
     d = _ensure_date(d)
     return d in _holiday_dates(d.year)
 
-def get_holiday(d):
+def get_holiday(d: DateLike) -> Optional[Holiday]:
     """Devuelve el festivo que se celebra en una fecha, o ``None``.
 
     A diferencia de :func:`is_holiday_date`, indica *cuál* festivo es,
@@ -348,7 +359,7 @@ def get_holiday(d):
             return holiday
     return None
 
-def next_holiday(d):
+def next_holiday(d: DateLike) -> Holiday:
     """Devuelve el próximo festivo estrictamente posterior a una fecha.
 
     Si no quedan festivos en el año, continúa con el siguiente (el
@@ -380,7 +391,7 @@ def next_holiday(d):
         year += 1
     raise ValueError("No hay festivos posteriores a la fecha dentro del rango soportado")
 
-def get_holidays_between(start, end):
+def get_holidays_between(start: DateLike, end: DateLike) -> List[Holiday]:
     """Devuelve los festivos dentro de un rango de fechas, inclusivo.
 
     El rango puede cruzar varios años. Es la consulta natural para
@@ -415,7 +426,7 @@ def get_holidays_between(start, end):
                 holidays.append(holiday)
     return holidays
 
-def is_business_day(d, include_saturday=False):
+def is_business_day(d: DateLike, include_saturday: bool = False) -> bool:
     """Indica si una fecha es día hábil en Colombia.
 
     Un día es hábil si no es domingo, no es festivo y —salvo que
@@ -450,7 +461,7 @@ def is_business_day(d, include_saturday=False):
         return False
     return d not in _holiday_dates(d.year)
 
-def add_business_days(d, n, include_saturday=False):
+def add_business_days(d: DateLike, n: int, include_saturday: bool = False) -> date:
     """Suma (o resta) ``n`` días hábiles a una fecha, saltando festivos.
 
     Es la operación base para calcular vencimientos y plazos: "5 días
@@ -493,7 +504,7 @@ def add_business_days(d, n, include_saturday=False):
             remaining -= 1
     return d
 
-def business_days_between(start, end, include_saturday=False):
+def business_days_between(start: DateLike, end: DateLike, include_saturday: bool = False) -> int:
     """Cuenta los días hábiles de un rango de fechas, inclusivo.
 
     Ambos extremos cuentan si son hábiles (mismo criterio que la función
@@ -536,7 +547,12 @@ def business_days_between(start, end, include_saturday=False):
         d += one_day
     return count
 
-def business_days_until(d, from_date=None, include_saturday=False, include_today=False):
+def business_days_until(
+    d: DateLike,
+    from_date: Optional[DateLike] = None,
+    include_saturday: bool = False,
+    include_today: bool = False,
+) -> int:
     """Cuenta los días hábiles que quedan hasta una fecha objetivo.
 
     Cuenta los días de lunes a viernes que no son festivos, hasta la
