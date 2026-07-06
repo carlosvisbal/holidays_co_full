@@ -12,6 +12,11 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/carlosvisbal/holidays_co_full",
+    project_urls={
+        "Código fuente": "https://github.com/carlosvisbal/holidays_co_full",
+        "Reporte de errores": "https://github.com/carlosvisbal/holidays_co_full/issues",
+        "Changelog": "https://github.com/carlosvisbal/holidays_co_full/releases",
+    },
     keywords=[
         "colombia", "festivos", "holidays", "dias habiles", "business days",
         "ley emiliani", "nomina", "calendario laboral",
@@ -34,6 +39,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Topic :: Office/Business :: Scheduling",
+        "Topic :: Software Development :: Libraries :: Python Modules",
         "Natural Language :: Spanish",
     ],
 )

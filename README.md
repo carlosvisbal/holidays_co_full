@@ -242,7 +242,7 @@ Colombia tiene 19 festivos por año desde 2026 (18 en años anteriores, sin el f
 
 ## Cómo funciona el cálculo
 
-El cálculo de un año se hace en cuatro pasos (ver [`holidays_co_full/__init__.py`](holidays_co_full/__init__.py)):
+El cálculo de un año se hace en cuatro pasos (ver [`holidays_co_full/__init__.py`](https://github.com/carlosvisbal/holidays_co_full/blob/main/holidays_co_full/__init__.py)):
 
 1. **Festivos de calendario**: para cada entrada de la tabla `HOLIDAYS` se construye la fecha `date(año, mes, día)`. Si el festivo es trasladable (`days_to_sum = calendar.MONDAY`) y la fecha no cae lunes, se mueve al lunes siguiente con `next_weekday()`. Si ya cae lunes, se celebra ese mismo día.
 2. **Domingo de Pascua**: `calc_easter(año)` calcula la fecha de Pascua occidental con el algoritmo de computus anónimo (Meeus), válido para cualquier año del calendario gregoriano.
@@ -251,7 +251,7 @@ El cálculo de un año se hace en cuatro pasos (ver [`holidays_co_full/__init__.
 
 ## Tests
 
-La suite vive en [`tests/test_holidays_co.py`](tests/test_holidays_co.py) y no necesita ninguna dependencia: corre con el `unittest` de la librería estándar (también es compatible con pytest si lo tienes instalado).
+La suite vive en [`tests/test_holidays_co.py`](https://github.com/carlosvisbal/holidays_co_full/blob/main/tests/test_holidays_co.py) y no necesita ninguna dependencia: corre con el `unittest` de la librería estándar (también es compatible con pytest si lo tienes instalado).
 
 ```shell
 # Desde la raíz del repositorio
@@ -292,4 +292,4 @@ Cada funcionalidad tiene su clase de tests, con los casos de uso y los casos bor
 
 ## Licencia
 
-Ver el archivo [LICENSE](LICENSE) del proyecto.
+Ver el archivo [LICENSE](https://github.com/carlosvisbal/holidays_co_full/blob/main/LICENSE) del proyecto (MIT).
