@@ -1,4 +1,4 @@
-# holidays_co
+# holidays_co_full
 
 **Días festivos no laborables en Colombia**, calculados para cualquier año entre 1970 y 9999 según la [Ley 51 de 1983](https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=4954) (Ley Emiliani), con utilidades de días hábiles para nóminas, vencimientos y planeación.
 
@@ -12,27 +12,27 @@ Esta versión es una **extensión** de la librería original publicada en [PyPI]
 ## Instalación
 
 ```shell
-pip install holidays_co
+pip install holidays_co_full
 ```
 
 ## Uso rápido
 
 ```python
-import holidays_co
+import holidays_co_full
 from datetime import date
 
 # Todos los festivos de un año, ordenados cronológicamente
-for holiday in holidays_co.get_colombia_holidays_by_year(2026):
+for holiday in holidays_co_full.get_colombia_holidays_by_year(2026):
     print(holiday.date, "-", holiday.celebration)
 
 # ¿Es festivo una fecha concreta? ¿Cuál?
-holidays_co.is_holiday_date(date(2026, 7, 13))   # True (lunes de traslado del 9 de julio)
-holidays_co.get_holiday(date(2026, 7, 20))       # Holiday(date=..., celebration='Día de la Independencia')
+holidays_co_full.is_holiday_date(date(2026, 7, 13))   # True (lunes de traslado del 9 de julio)
+holidays_co_full.get_holiday(date(2026, 7, 20))       # Holiday(date=..., celebration='Día de la Independencia')
 
 # Días hábiles
-holidays_co.is_business_day(date(2026, 7, 13))                 # False (lunes festivo)
-holidays_co.add_business_days(date(2026, 7, 10), 5)            # date(2026, 7, 21)
-holidays_co.business_days_between(date(2026, 7, 1), date(2026, 7, 31))  # 21
+holidays_co_full.is_business_day(date(2026, 7, 13))                 # False (lunes festivo)
+holidays_co_full.add_business_days(date(2026, 7, 10), 5)            # date(2026, 7, 21)
+holidays_co_full.business_days_between(date(2026, 7, 1), date(2026, 7, 31))  # 21
 ```
 
 ## API
@@ -53,7 +53,7 @@ Los festivos se devuelven como `namedtuple` `Holiday`:
 Devuelve la lista de los 19 festivos del año, ordenada por fecha. Acepta `int` o cadena numérica (`"2026"`); rechaza `float` para evitar truncamientos silenciosos.
 
 ```python
->>> holidays_co.get_colombia_holidays_by_year(2026)[0]
+>>> holidays_co_full.get_colombia_holidays_by_year(2026)[0]
 Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
 ```
 
@@ -64,7 +64,7 @@ Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
 `True` si la fecha es festivo, `False` en caso contrario.
 
 ```python
->>> holidays_co.is_holiday_date(date(2026, 1, 12))
+>>> holidays_co_full.is_holiday_date(date(2026, 1, 12))
 True
 ```
 
@@ -75,7 +75,7 @@ True
 Devuelve el `Holiday` que se celebra en la fecha, o `None` si no es festivo. A diferencia de `is_holiday_date`, indica *cuál* festivo es.
 
 ```python
->>> holidays_co.get_holiday(date(2026, 7, 20)).celebration
+>>> holidays_co_full.get_holiday(date(2026, 7, 20)).celebration
 'Día de la Independencia'
 ```
 
@@ -86,7 +86,7 @@ Devuelve el `Holiday` que se celebra en la fecha, o `None` si no es festivo. A d
 El próximo festivo estrictamente posterior a la fecha; si no quedan festivos en el año, continúa con el siguiente.
 
 ```python
->>> holidays_co.next_holiday(date(2026, 12, 26))
+>>> holidays_co_full.next_holiday(date(2026, 12, 26))
 Holiday(date=datetime.date(2027, 1, 1), celebration='Año Nuevo')
 ```
 
@@ -97,7 +97,7 @@ Holiday(date=datetime.date(2027, 1, 1), celebration='Año Nuevo')
 Festivos dentro de un rango de fechas (ambos extremos incluidos); el rango puede cruzar varios años.
 
 ```python
->>> [h.date.isoformat() for h in holidays_co.get_holidays_between(date(2026, 12, 1), date(2027, 1, 31))]
+>>> [h.date.isoformat() for h in holidays_co_full.get_holidays_between(date(2026, 12, 1), date(2027, 1, 31))]
 ['2026-12-08', '2026-12-25', '2027-01-01', '2027-01-11']
 ```
 
@@ -112,9 +112,9 @@ Las tres funciones aceptan el parámetro opcional `include_saturday` (por defect
 `True` si la fecha no es domingo, ni festivo, ni sábado (salvo `include_saturday=True`).
 
 ```python
->>> holidays_co.is_business_day(date(2026, 7, 13))   # lunes festivo
+>>> holidays_co_full.is_business_day(date(2026, 7, 13))   # lunes festivo
 False
->>> holidays_co.is_business_day(date(2026, 7, 11), include_saturday=True)   # sábado
+>>> holidays_co_full.is_business_day(date(2026, 7, 11), include_saturday=True)   # sábado
 True
 ```
 
@@ -125,7 +125,7 @@ True
 Suma (o resta, con `n` negativo) `n` días hábiles a la fecha, saltando fines de semana y festivos. La fecha de partida no cuenta dentro de `n`.
 
 ```python
->>> holidays_co.add_business_days(date(2026, 7, 10), 1)   # viernes + 1 hábil
+>>> holidays_co_full.add_business_days(date(2026, 7, 10), 1)   # viernes + 1 hábil
 datetime.date(2026, 7, 14)
 ```
 El lunes 13 es festivo, así que el resultado salta al martes 14.
@@ -137,7 +137,7 @@ El lunes 13 es festivo, así que el resultado salta al martes 14.
 Cuenta los días hábiles del rango, ambos extremos incluidos (mismo criterio que `NETWORKDAYS` de las hojas de cálculo).
 
 ```python
->>> holidays_co.business_days_between(date(2026, 7, 13), date(2026, 7, 17))
+>>> holidays_co_full.business_days_between(date(2026, 7, 13), date(2026, 7, 17))
 4
 ```
 
@@ -149,13 +149,13 @@ Responde "¿cuántos días hábiles me quedan para esta fecha?". Cuenta los día
 
 ```python
 >>> # Hoy es lunes 6 de julio de 2026; el lunes 13 es festivo
->>> holidays_co.business_days_until(date(2026, 7, 17))
+>>> holidays_co_full.business_days_until(date(2026, 7, 17))
 8
 >>> # Contando también el día de hoy (es lunes hábil)
->>> holidays_co.business_days_until(date(2026, 7, 17), include_today=True)
+>>> holidays_co_full.business_days_until(date(2026, 7, 17), include_today=True)
 9
 >>> # Con una fecha de referencia explícita (reportes, simulaciones)
->>> holidays_co.business_days_until(date(2026, 7, 17), from_date=date(2026, 7, 6))
+>>> holidays_co_full.business_days_until(date(2026, 7, 17), from_date=date(2026, 7, 6))
 8
 ```
 
@@ -165,14 +165,14 @@ Responde "¿cuántos días hábiles me quedan para esta fecha?". Cuenta los día
 
 ```python
 from datetime import date
-import holidays_co
+import holidays_co_full
 
 radicacion = date(2026, 7, 8)  # miércoles
-plazo = holidays_co.add_business_days(radicacion, 15)
+plazo = holidays_co_full.add_business_days(radicacion, 15)
 print(f"Radicada el {radicacion}, vence el {plazo}")
-if festivo := holidays_co.get_holiday(radicacion):
+if festivo := holidays_co_full.get_holiday(radicacion):
     print(f"Ojo: se radicó un festivo ({festivo.celebration})")
-print(f"Próximo festivo: {holidays_co.next_holiday(date.today())}")
+print(f"Próximo festivo: {holidays_co_full.next_holiday(date.today())}")
 ```
 
 ## Precisión histórica
@@ -186,17 +186,17 @@ El paquete no aplica el calendario actual retroactivamente: reproduce las reglas
 Por eso `get_colombia_holidays_by_year(year)` puede devolver **18 festivos** para años anteriores a 2026 y **19** desde 2026 en adelante, y el nombre de un mismo festivo puede variar según el año consultado.
 
 ```python
->>> holidays_co.get_colombia_holidays_by_year(1970)[1]   # martes 6 de enero de 1970: sin traslado
+>>> holidays_co_full.get_colombia_holidays_by_year(1970)[1]   # martes 6 de enero de 1970: sin traslado
 Holiday(date=datetime.date(1970, 1, 6), celebration='Día de los Reyes Magos')
->>> holidays_co.get_colombia_holidays_by_year(1984)[1]    # viernes 6 de enero de 1984: se traslada al lunes 9
+>>> holidays_co_full.get_colombia_holidays_by_year(1984)[1]    # viernes 6 de enero de 1984: se traslada al lunes 9
 Holiday(date=datetime.date(1984, 1, 9), celebration='Día de los Reyes Magos')
->>> len(holidays_co.get_colombia_holidays_by_year(2025))  # sin el festivo del 9 de julio
+>>> len(holidays_co_full.get_colombia_holidays_by_year(2025))  # sin el festivo del 9 de julio
 18
->>> len(holidays_co.get_colombia_holidays_by_year(2026))  # con el festivo del 9 de julio
+>>> len(holidays_co_full.get_colombia_holidays_by_year(2026))  # con el festivo del 9 de julio
 19
->>> holidays_co.get_holiday(date(2020, 10, 12)).celebration   # nombre antiguo
+>>> holidays_co_full.get_holiday(date(2020, 10, 12)).celebration   # nombre antiguo
 'Día de la Raza'
->>> holidays_co.get_holiday(date(2026, 10, 12)).celebration   # nombre oficial vigente
+>>> holidays_co_full.get_holiday(date(2026, 10, 12)).celebration   # nombre oficial vigente
 'Día de la Diversidad Étnica y Cultural de la Nación Colombiana'
 ```
 
@@ -242,7 +242,7 @@ Colombia tiene 19 festivos por año desde 2026 (18 en años anteriores, sin el f
 
 ## Cómo funciona el cálculo
 
-El cálculo de un año se hace en cuatro pasos (ver [`holidays_co/__init__.py`](holidays_co/__init__.py)):
+El cálculo de un año se hace en cuatro pasos (ver [`holidays_co_full/__init__.py`](holidays_co_full/__init__.py)):
 
 1. **Festivos de calendario**: para cada entrada de la tabla `HOLIDAYS` se construye la fecha `date(año, mes, día)`. Si el festivo es trasladable (`days_to_sum = calendar.MONDAY`) y la fecha no cae lunes, se mueve al lunes siguiente con `next_weekday()`. Si ya cae lunes, se celebra ese mismo día.
 2. **Domingo de Pascua**: `calc_easter(año)` calcula la fecha de Pascua occidental con el algoritmo de computus anónimo (Meeus), válido para cualquier año del calendario gregoriano.
@@ -261,7 +261,7 @@ python -m unittest discover tests -v
 pytest tests/ -v
 
 # Los ejemplos de los docstrings también son verificables
-python -m doctest holidays_co/__init__.py && echo OK
+python -m doctest holidays_co_full/__init__.py && echo OK
 ```
 
 Cada funcionalidad tiene su clase de tests, con los casos de uso y los casos borde fijados contra el calendario oficial colombiano:

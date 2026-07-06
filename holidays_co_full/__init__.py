@@ -1,4 +1,4 @@
-"""holidays_co — Días festivos no laborables en Colombia.
+"""holidays_co_full — Días festivos no laborables en Colombia.
 
 Calcula los días festivos oficiales de Colombia para cualquier año entre
 1970 y 9999, con precisión histórica: el traslado al lunes siguiente solo
@@ -36,12 +36,12 @@ Funciones disponibles:
 
 Ejemplo de uso::
 
-    >>> import holidays_co
+    >>> import holidays_co_full
     >>> from datetime import date
-    >>> holidays = holidays_co.get_colombia_holidays_by_year(2026)
+    >>> holidays = holidays_co_full.get_colombia_holidays_by_year(2026)
     >>> holidays[0]
     Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
-    >>> holidays_co.is_holiday_date(date(2026, 7, 20))
+    >>> holidays_co_full.is_holiday_date(date(2026, 7, 20))
     True
 
 :copyright: Portado desde https://github.com/nequibc/colombia-holidays
