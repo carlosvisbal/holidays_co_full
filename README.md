@@ -1,5 +1,13 @@
 # holidays_co_full
 
+[![PyPI version](https://img.shields.io/pypi/v/holidays_co_full.svg)](https://pypi.org/project/holidays_co_full/)
+[![Python versions](https://img.shields.io/pypi/pyversions/holidays_co_full.svg)](https://pypi.org/project/holidays_co_full/)
+[![Tests](https://github.com/carlosvisbal/holidays_co_full/actions/workflows/tests.yml/badge.svg)](https://github.com/carlosvisbal/holidays_co_full/actions/workflows/tests.yml)
+[![PyPI downloads](https://img.shields.io/pypi/dm/holidays_co_full.svg)](https://pypi.org/project/holidays_co_full/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/carlosvisbal/holidays_co_full/blob/main/LICENSE)
+
+🇨🇴 Español | [🇬🇧 English](README.en.md)
+
 **Días festivos no laborables en Colombia**, calculados para cualquier año entre 1970 y 9999 según la [Ley 51 de 1983](https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=4954) (Ley Emiliani), con utilidades de días hábiles para nóminas, vencimientos y planeación.
 
 Esta versión es una **extensión** de la librería original publicada en [PyPI](https://pypi.org/project/holidays-co/) (v1.0.0, que solo incluía `get_colombia_holidays_by_year` e `is_holiday_date`). Mantiene compatibilidad total con esa API y añade: precisión histórica del calendario, consulta del nombre del festivo, búsqueda del próximo festivo, festivos por rango de fechas, y todo el conjunto de utilidades de días hábiles.
@@ -8,12 +16,31 @@ Esta versión es una **extensión** de la librería original publicada en [PyPI]
 - Resultados cacheados en memoria: consultar el mismo año repetidamente tiene costo despreciable.
 - Fechas ya resueltas: los festivos trasladables se devuelven en su día efectivo de celebración.
 - Precisión histórica: el traslado al lunes solo se aplica desde 1984 y cada festivo solo aparece a partir de su año de vigencia (ver [Precisión histórica](#precisión-histórica)).
+- Tipado: incluye anotaciones de tipo y el marcador `py.typed` ([PEP 561](https://peps.python.org/pep-0561/)) para autocompletado y chequeo estático con mypy/pyright.
+
+## ¿Por qué esta librería?
+
+Hay alternativas genéricas multi-país (como [`holidays`](https://pypi.org/project/holidays/)) que también cubren Colombia. `holidays_co_full` está pensada para cuando Colombia *es* el problema, no un país más de una lista:
+
+| | `holidays_co_full` | Librerías genéricas multi-país |
+|---|---|---|
+| Traslado al lunes solo desde 1984 (Ley Emiliani) | Sí, por año consultado | Normalmente aplican la regla actual a todo el histórico |
+| Festivo con año de vigencia propio (9 de julio desde 2026) | Sí (`valid_from`) | Requiere mantenimiento manual por país |
+| Nombre oficial vigente por año (12 de octubre) | Sí (`renamed_to`/`renamed_from`) | Poco común |
+| Utilidades de días hábiles (`add_business_days`, `business_days_between`, `business_days_until`) | Incluidas, con `include_saturday` | Variable según librería |
+| Dependencias externas | Ninguna | Depende de la librería |
+
+Si solo necesitas saber si una fecha es festivo en cualquier país del mundo, una librería genérica puede bastar. Si trabajas con nóminas, vencimientos legales o planeación en Colombia y necesitas exactitud histórica y días hábiles, esta librería está construida específicamente para eso.
 
 ## Instalación
 
 ```shell
 pip install holidays_co_full
 ```
+
+¿Quieres probarlo sin instalar nada? Abre el [notebook de ejemplo](examples/demo.ipynb) en Colab:
+
+[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/carlosvisbal/holidays_co_full/blob/main/examples/demo.ipynb)
 
 ## Uso rápido
 
