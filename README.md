@@ -10,7 +10,7 @@
 
 **Días festivos no laborables en Colombia**, calculados para cualquier año entre 1970 y 9999 según la [Ley 51 de 1983](https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=4954) (Ley Emiliani), con utilidades de días hábiles para nóminas, vencimientos y planeación.
 
-Esta versión es una **extensión** de la librería original publicada en [PyPI](https://pypi.org/project/holidays-co/) (v1.0.0, que solo incluía `get_colombia_holidays_by_year` e `is_holiday_date`). Mantiene compatibilidad total con esa API y añade: precisión histórica del calendario, consulta del nombre del festivo, búsqueda del próximo festivo, festivos por rango de fechas, y todo el conjunto de utilidades de días hábiles.
+Esta versión es una **extensión** de la librería original publicada en [PyPI](https://pypi.org/project/holidays-co/) (v1.0.0, que solo incluía `get_colombia_holidays_by_year` e `is_holiday_date`). Mantiene compatibilidad total con esa API y añade: precisión histórica del calendario, consulta del nombre del festivo, búsqueda del próximo festivo y del anterior, festivos por rango de fechas, detección de puentes, todo el conjunto de utilidades de días hábiles, calendarios configurables por empresa, exportación a JSON e iCalendar, integración con pandas y una CLI (`holidays-co`).
 
 - Sin dependencias externas: solo usa la librería estándar de Python 3.
 - Resultados cacheados en memoria: consultar el mismo año repetidamente tiene costo despreciable.
@@ -53,13 +53,17 @@ for holiday in holidays_co_full.get_colombia_holidays_by_year(2026):
     print(holiday.date, "-", holiday.celebration)
 
 # ¿Es festivo una fecha concreta? ¿Cuál?
-holidays_co_full.is_holiday_date(date(2026, 7, 13))   # True (lunes de traslado del 9 de julio)
-holidays_co_full.get_holiday(date(2026, 7, 20))       # Holiday(date=..., celebration='Día de la Independencia')
+holidays_co_full.is_holiday_date(date(2026, 7, 13))               # True (lunes de traslado del 9 de julio)
+holidays_co_full.get_holiday(date(2026, 7, 20)).celebration       # 'Día de la Independencia'
 
 # Días hábiles
 holidays_co_full.is_business_day(date(2026, 7, 13))                 # False (lunes festivo)
 holidays_co_full.add_business_days(date(2026, 7, 10), 5)            # date(2026, 7, 21)
 holidays_co_full.business_days_between(date(2026, 7, 1), date(2026, 7, 31))  # 21
+
+# Puentes del año y exportación
+holidays_co_full.long_weekends(2026)[0]   # LongWeekend(start=date(2026, 1, 10), end=date(2026, 1, 12), days=3, ...)
+holidays_co_full.to_ical(2026)            # calendario .ics importable en Google Calendar / Outlook
 ```
 
 ## API
@@ -72,6 +76,9 @@ Los festivos se devuelven como `namedtuple` `Holiday`:
 |---|---|---|
 | `date` | `datetime.date` | Fecha efectiva de celebración (con el traslado al lunes ya aplicado) |
 | `celebration` | `str` | Nombre oficial del festivo |
+| `original_date` | `datetime.date` | Fecha natural del festivo antes del traslado (igual a `date` si no se movió) |
+| `is_shifted` | `bool` | `True` si el festivo fue trasladado al lunes siguiente (Ley Emiliani) |
+| `kind` | `str` | Tipo de festivo: `"fixed"` (fijo), `"movable"` (trasladable), `"easter"` (relativo a Pascua) o `"extra"` (día propio de un `HolidayCalendar`) |
 
 ### Consulta de festivos
 
@@ -80,8 +87,12 @@ Los festivos se devuelven como `namedtuple` `Holiday`:
 Devuelve la lista de los 19 festivos del año, ordenada por fecha. Acepta `int` o cadena numérica (`"2026"`); rechaza `float` para evitar truncamientos silenciosos.
 
 ```python
->>> holidays_co_full.get_colombia_holidays_by_year(2026)[0]
-Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
+>>> primero = holidays_co_full.get_colombia_holidays_by_year(2026)[0]
+>>> primero.date, primero.celebration
+(datetime.date(2026, 1, 1), 'Año Nuevo')
+>>> reyes = holidays_co_full.get_colombia_holidays_by_year(2026)[1]
+>>> reyes.original_date, reyes.date, reyes.is_shifted   # el 6 de enero cae martes
+(datetime.date(2026, 1, 6), datetime.date(2026, 1, 12), True)
 ```
 
 **Casos de uso:** poblar el calendario laboral del año en un sistema de nómina o turnos; precargar festivos en la base de datos de una aplicación; generar el calendario anual de una intranet.
@@ -113,11 +124,41 @@ Devuelve el `Holiday` que se celebra en la fecha, o `None` si no es festivo. A d
 El próximo festivo estrictamente posterior a la fecha; si no quedan festivos en el año, continúa con el siguiente.
 
 ```python
->>> holidays_co_full.next_holiday(date(2026, 12, 26))
-Holiday(date=datetime.date(2027, 1, 1), celebration='Año Nuevo')
+>>> proximo = holidays_co_full.next_holiday(date(2026, 12, 26))
+>>> proximo.date, proximo.celebration
+(datetime.date(2027, 1, 1), 'Año Nuevo')
 ```
 
 **Casos de uso:** contadores "faltan N días para el próximo festivo"; planear despliegues y mantenimientos fuera de puentes; widgets de calendario en dashboards.
+
+#### `previous_holiday(d)`
+
+El festivo más reciente estrictamente anterior a la fecha; si no hay festivos previos en el año, continúa con el anterior.
+
+```python
+>>> holidays_co_full.previous_holiday(date(2026, 1, 5)).date
+datetime.date(2026, 1, 1)
+>>> holidays_co_full.previous_holiday(date(2026, 1, 1)).date   # cruza de año
+datetime.date(2025, 12, 25)
+```
+
+**Casos de uso:** reportes "días transcurridos desde el último festivo"; ubicar el puente anterior a una fecha de corte; validar si un rezago operativo se explica por un festivo reciente.
+
+#### `long_weekends(year, include_saturday=False)`
+
+Los puentes del año: bloques de 3 o más días no hábiles consecutivos que contienen al menos un festivo (el clásico sábado-domingo-lunes de la Ley Emiliani, un viernes festivo con su fin de semana, o la Semana Santa de jueves a domingo). Devuelve `namedtuple` `LongWeekend` con `start`, `end`, `days` y la tupla `holidays` del bloque.
+
+```python
+>>> puentes = holidays_co_full.long_weekends(2026)
+>>> len(puentes)
+16
+>>> puentes[0].start, puentes[0].end, puentes[0].days
+(datetime.date(2026, 1, 10), datetime.date(2026, 1, 12), 3)
+>>> [h.celebration for h in puentes[2].holidays]   # Semana Santa: 4 días
+['Jueves Santo', 'Viernes Santo']
+```
+
+**Casos de uso:** planear turnos y personal de respaldo en puentes; campañas de turismo y comercio; congelar despliegues en fines de semana largos; calendarios de demanda en logística.
 
 #### `get_holidays_between(start, end)`
 
@@ -132,7 +173,7 @@ Festivos dentro de un rango de fechas (ambos extremos incluidos); el rango puede
 
 ### Días hábiles
 
-Las tres funciones aceptan el parámetro opcional `include_saturday` (por defecto `False`): con `True`, los sábados no festivos cuentan como hábiles, útil para negocios con jornada de sábado (bancos, comercio).
+Las funciones de esta sección aceptan el parámetro opcional `include_saturday` (por defecto `False`): con `True`, los sábados no festivos cuentan como hábiles, útil para negocios con jornada de sábado (bancos, comercio).
 
 #### `is_business_day(d, include_saturday=False)`
 
@@ -188,6 +229,75 @@ Responde "¿cuántos días hábiles me quedan para esta fecha?". Cuenta los día
 
 **Casos de uso:** días hábiles que quedan para el vencimiento de una PQR o un contrato; cuenta regresiva para un cierre contable o una entrega; días laborables que faltan antes de las vacaciones; alertas del tipo "quedan menos de 3 días hábiles".
 
+### Calendario configurable: `HolidayCalendar`
+
+Evita repetir `include_saturday=...` en cada llamada y permite declarar **días no laborables propios de la empresa** (cierres de fin de año, día de la familia, aniversarios), que todos los métodos tratan igual que un festivo. Acepta un iterable de fechas, de tuplas `(fecha, nombre)` o un dict `{fecha: nombre}`; los días extra aparecen como `Holiday` con `kind='extra'` y, si coinciden con un festivo oficial, prevalece el oficial.
+
+```python
+from datetime import date
+from holidays_co_full import HolidayCalendar
+
+cal = HolidayCalendar(extra_non_working=[(date(2026, 12, 24), "Cierre de fin de año")])
+
+cal.is_business_day(date(2026, 12, 24))        # False
+cal.get_holiday(date(2026, 12, 24)).kind        # 'extra'
+cal.add_business_days(date(2026, 12, 23), 1)    # date(2026, 12, 28)
+cal.get_holidays_by_year(2026)                  # 19 oficiales + 1 extra
+```
+
+Tiene los mismos métodos que el módulo (`is_holiday_date`, `get_holiday`, `next_holiday`, `previous_holiday`, `get_holidays_between`, `get_holidays_by_year`, `is_business_day`, `add_business_days`, `business_days_between`, `business_days_until`, `long_weekends`), aplicando la configuración del calendario.
+
+**Casos de uso:** calendario laboral de una empresa con cierres propios; jornadas con sábado hábil sin repetir el flag; puentes "reales" de la organización (los días extra pueden alargar un puente oficial).
+
+### Exportación: `to_json(years)` y `to_ical(years)`
+
+Exportan los festivos de uno o varios años (un `int`/`str` o un iterable). `to_json` produce JSON con los metadatos completos y acentos legibles; `to_ical` produce un calendario iCalendar (`.ics`) con eventos de día completo, importable en Google Calendar, Outlook o Apple Calendar, con UID deterministas (reimportar actualiza en vez de duplicar).
+
+```python
+holidays_co_full.to_json(2026)            # '[\n  {\n    "date": "2026-01-01", ...'
+holidays_co_full.to_json([2026, 2027])    # varios años, ordenados por fecha
+
+with open("festivos_2026.ics", "w") as f:
+    f.write(holidays_co_full.to_ical(2026))
+```
+
+**Casos de uso:** alimentar un front-end o una API interna con el calendario del año; distribuir el calendario corporativo a los empleados como `.ics`; sincronizar festivos con herramientas de agenda.
+
+### Integración con pandas: `custom_business_day(...)`
+
+Devuelve un [`CustomBusinessDay`](https://pandas.pydata.org/docs/reference/api/pandas.tseries.offsets.CustomBusinessDay.html) con los festivos colombianos, para usar el calendario directamente en pandas. Requiere pandas (`pip install holidays_co_full[pandas]`); el núcleo de la librería sigue sin dependencias.
+
+```python
+import pandas as pd
+import holidays_co_full
+
+cbd = holidays_co_full.custom_business_day(start_year=2026, end_year=2027)
+pd.date_range("2026-07-01", periods=10, freq=cbd)   # días hábiles de Colombia
+pd.Timestamp("2026-07-10") + cbd                    # → 2026-07-14 (salta el lunes festivo 13)
+```
+
+Por defecto carga los festivos desde el año pasado hasta 5 años adelante (`start_year`/`end_year` lo controlan); las fechas fuera de ese rango no conocen los festivos.
+
+**Casos de uso:** series de tiempo financieras y de demanda que solo existen en días hábiles; features de "días hábiles hasta X" en modelos; resampling de datos operativos excluyendo festivos.
+
+## Línea de comandos
+
+La librería instala el comando `holidays-co` (también disponible como `python -m holidays_co_full`):
+
+```shell
+holidays-co year 2026                # lista los festivos del año
+holidays-co year 2026 --json         # en JSON (con metadatos)
+holidays-co year 2026 --ics          # en iCalendar, listo para importar
+holidays-co check 2026-07-20         # ¿es festivo? (exit 0 sí / 1 no, útil en scripts)
+holidays-co next                     # próximo festivo desde hoy
+holidays-co prev --from 2026-07-14   # festivo anterior a una fecha
+holidays-co puentes 2026             # fines de semana largos del año
+holidays-co business-days 2026-07-01 2026-07-31   # cuenta días hábiles
+holidays-co add 2026-07-10 5         # suma días hábiles a una fecha
+```
+
+Todos los subcomandos de días hábiles aceptan `--include-saturday`. El código de salida de `check` permite usarlo en automatizaciones: `holidays-co check $(date +%F) || ./correr_proceso.sh`.
+
 ## Ejemplo integrado: fecha límite de una PQR
 
 ```python
@@ -213,10 +323,10 @@ El paquete no aplica el calendario actual retroactivamente: reproduce las reglas
 Por eso `get_colombia_holidays_by_year(year)` puede devolver **18 festivos** para años anteriores a 2026 y **19** desde 2026 en adelante, y el nombre de un mismo festivo puede variar según el año consultado.
 
 ```python
->>> holidays_co_full.get_colombia_holidays_by_year(1970)[1]   # martes 6 de enero de 1970: sin traslado
-Holiday(date=datetime.date(1970, 1, 6), celebration='Día de los Reyes Magos')
->>> holidays_co_full.get_colombia_holidays_by_year(1984)[1]    # viernes 6 de enero de 1984: se traslada al lunes 9
-Holiday(date=datetime.date(1984, 1, 9), celebration='Día de los Reyes Magos')
+>>> holidays_co_full.get_colombia_holidays_by_year(1970)[1].date   # martes 6 de enero de 1970: sin traslado
+datetime.date(1970, 1, 6)
+>>> holidays_co_full.get_colombia_holidays_by_year(1984)[1].date   # viernes 6 de enero de 1984: se traslada al lunes 9
+datetime.date(1984, 1, 9)
 >>> len(holidays_co_full.get_colombia_holidays_by_year(2025))  # sin el festivo del 9 de julio
 18
 >>> len(holidays_co_full.get_colombia_holidays_by_year(2026))  # con el festivo del 9 de julio
@@ -278,7 +388,7 @@ El cálculo de un año se hace en cuatro pasos (ver [`holidays_co_full/__init__.
 
 ## Tests
 
-La suite vive en [`tests/test_holidays_co.py`](https://github.com/carlosvisbal/holidays_co_full/blob/main/tests/test_holidays_co.py) y no necesita ninguna dependencia: corre con el `unittest` de la librería estándar (también es compatible con pytest si lo tienes instalado).
+La suite vive en [`tests/test_holidays_co.py`](https://github.com/carlosvisbal/holidays_co_full/blob/main/tests/test_holidays_co.py) y [`tests/test_new_features.py`](https://github.com/carlosvisbal/holidays_co_full/blob/main/tests/test_new_features.py) y no necesita ninguna dependencia: corre con el `unittest` de la librería estándar (también es compatible con pytest si lo tienes instalado). Los tests de la integración con pandas se saltan automáticamente si pandas no está instalado.
 
 ```shell
 # Desde la raíz del repositorio
@@ -305,10 +415,18 @@ Cada funcionalidad tiene su clase de tests, con los casos de uso y los casos bor
 | `TestAddBusinessDays` | Saltos de fin de semana y festivo, `n` negativo y cero, validación de `n` |
 | `TestBusinessDaysBetween` | Semanas con festivo, conteo inclusivo, `include_saturday`, rangos inválidos |
 | `TestBusinessDaysUntil` | Días restantes hasta una fecha, parámetro `include_today`, fecha objetivo hoy o vencida, valor por defecto (hoy) |
+| `TestHolidayMetadata` | Campos `original_date`, `is_shifted` y `kind`, incluida la ausencia de traslados antes de 1984 |
+| `TestPreviousHoliday` | Búsqueda hacia atrás dentro del año, cruce de año, borde inferior del rango (1970) |
+| `TestLongWeekends` | Puentes de lunes, Semana Santa de 4 días, festivos aislados, `include_saturday`, bordes 1970/9999 |
+| `TestHolidayCalendar` | Días extra de empresa, prevalencia del festivo oficial, formatos de entrada, validaciones |
+| `TestToJson` / `TestToIcal` | Estructura, metadatos, acentos, varios años, UID deterministas del `.ics` |
+| `TestCustomBusinessDay` | Offset de pandas con festivos y `weekmask` (se salta sin pandas) |
+| `TestCli` | Todos los subcomandos, formatos de salida y códigos de salida |
 
 ## Requisitos
 
 - Python 3 (solo librería estándar).
+- Opcional: pandas, únicamente para `custom_business_day` (`pip install holidays_co_full[pandas]`).
 
 ## Créditos
 

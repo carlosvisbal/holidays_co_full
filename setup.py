@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="holidays_co_full",
-    version="1.0.0",
+    version="1.1.0",
     author="Carlos Visbal",
     author_email="carlosvisbal66@gmail.com",
     description="Librería de festivos y días hábiles para Colombia, con precisión histórica desde 1970",
@@ -19,12 +19,20 @@ setuptools.setup(
     },
     keywords=[
         "colombia", "festivos", "holidays", "dias habiles", "business days",
-        "ley emiliani", "nomina", "calendario laboral",
+        "ley emiliani", "nomina", "calendario laboral", "puentes", "ical",
     ],
     packages=setuptools.find_packages(),
     package_data={"holidays_co_full": ["py.typed"]},
     python_requires=">=3.7",
     install_requires=[],
+    extras_require={
+        "pandas": ["pandas>=1.0"],
+    },
+    entry_points={
+        "console_scripts": [
+            "holidays-co=holidays_co_full.cli:main",
+        ],
+    },
     license="MIT",
     classifiers=[
         "Development Status :: 5 - Production/Stable",

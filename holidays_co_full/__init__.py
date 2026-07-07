@@ -28,19 +28,30 @@ Funciones disponibles:
 - :func:`is_holiday_date`: indica si una fecha es festivo.
 - :func:`get_holiday`: nombre de la celebración de una fecha, o ``None``.
 - :func:`next_holiday`: el próximo festivo después de una fecha.
+- :func:`previous_holiday`: el festivo anterior a una fecha.
 - :func:`get_holidays_between`: festivos dentro de un rango de fechas.
+- :func:`long_weekends`: los puentes (fines de semana largos) de un año.
 - :func:`is_business_day`: indica si una fecha es día hábil.
 - :func:`add_business_days`: suma o resta días hábiles a una fecha.
 - :func:`business_days_between`: cuenta los días hábiles de un rango.
 - :func:`business_days_until`: días hábiles que quedan hasta una fecha objetivo.
+- :func:`to_json`: exporta los festivos de uno o varios años como JSON.
+- :func:`to_ical`: exporta los festivos como calendario iCalendar (``.ics``).
+- :func:`custom_business_day`: offset de pandas con los festivos colombianos
+  (requiere instalar ``pandas``).
+- :class:`HolidayCalendar`: calendario configurable (sábados hábiles y
+  días no laborables propios de una empresa).
+
+También hay una interfaz de línea de comandos: ``holidays-co --help``
+(o ``python -m holidays_co_full --help``).
 
 Ejemplo de uso::
 
     >>> import holidays_co_full
     >>> from datetime import date
     >>> holidays = holidays_co_full.get_colombia_holidays_by_year(2026)
-    >>> holidays[0]
-    Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
+    >>> holidays[0].date, holidays[0].celebration
+    (datetime.date(2026, 1, 1), 'Año Nuevo')
     >>> holidays_co_full.is_holiday_date(date(2026, 7, 20))
     True
 
@@ -51,10 +62,11 @@ Ejemplo de uso::
 from __future__ import annotations
 
 import calendar
+import json
 from collections import namedtuple
 from datetime import date, timedelta, datetime
 from functools import lru_cache
-from typing import List, Optional, Union
+from typing import Callable, Iterable, List, Optional, Union
 
 #: Acepta tanto ``date`` como ``datetime`` en las funciones públicas
 #: (de este último se ignora la hora).
@@ -78,11 +90,32 @@ LEY_EMILIANI_YEAR = 1984
 #: Festivo ya resuelto para un año concreto, tal como lo devuelven las
 #: funciones públicas. ``date`` es un :class:`datetime.date` con la fecha
 #: efectiva de celebración y ``celebration`` el nombre oficial del festivo.
-_nt_holiday = namedtuple("Holiday", ["date", "celebration"])
+#: Los campos de metadatos permiten distinguir el traslado de la Ley
+#: Emiliani: ``original_date`` es la fecha natural del festivo antes del
+#: traslado (igual a ``date`` si no se movió), ``is_shifted`` indica si el
+#: festivo fue trasladado al lunes siguiente y ``kind`` clasifica el
+#: festivo: ``"fixed"`` (fecha fija), ``"movable"`` (trasladable),
+#: ``"easter"`` (relativo a Pascua) o ``"extra"`` (día no laborable propio
+#: de un :class:`HolidayCalendar`). Los campos nuevos tienen valores por
+#: defecto para que ``Holiday(date, celebration)`` siga funcionando.
+_nt_holiday = namedtuple(
+    "Holiday",
+    ["date", "celebration", "original_date", "is_shifted", "kind"],
+    defaults=[None, False, None],
+)
 
 #: Alias público de :data:`_nt_holiday`, para poder importarlo como
 #: ``from holidays_co_full import Holiday`` (anotaciones de tipo, mypy, IDEs).
 Holiday = _nt_holiday
+
+#: Puente (fin de semana largo) detectado por :func:`long_weekends`:
+#: ``start`` y ``end`` son las fechas extremas (inclusivas) del bloque de
+#: días no hábiles consecutivos, ``days`` su longitud en días calendario y
+#: ``holidays`` la tupla de festivos que caen dentro del bloque.
+_nt_long_weekend = namedtuple("LongWeekend", ["start", "end", "days", "holidays"])
+
+#: Alias público de :data:`_nt_long_weekend`.
+LongWeekend = _nt_long_weekend
 
 #: Definición de un festivo de fecha fija en el calendario. ``month`` y
 #: ``day`` son enteros; ``days_to_sum`` es ``calendar.MONDAY`` si el
@@ -220,20 +253,34 @@ def _get_holidays(year: int) -> tuple:
     for holiday in HOLIDAYS:
         if holiday.valid_from is not None and year < holiday.valid_from:
             continue
-        holiday_date = date(year, holiday.month, holiday.day)
+        original_date = date(year, holiday.month, holiday.day)
+        holiday_date = original_date
         if shift_applies and holiday.days_to_sum is not None and holiday_date.weekday() != holiday.days_to_sum:
             holiday_date = next_weekday(holiday_date, holiday.days_to_sum)
         celebration = holiday.celebration
         if holiday.renamed_from is not None and year >= holiday.renamed_from:
             celebration = holiday.renamed_to
-        holidays.append(_nt_holiday(date=holiday_date, celebration=celebration))
+        holidays.append(_nt_holiday(
+            date=holiday_date,
+            celebration=celebration,
+            original_date=original_date,
+            is_shifted=holiday_date != original_date,
+            kind="fixed" if holiday.days_to_sum is None else "movable",
+        ))
 
     sunday_date = calc_easter(year)
     for holiday in EASTER_WEEK_HOLIDAYS:
-        holiday_date = sunday_date + timedelta(days=holiday.days_after_easter)
+        original_date = sunday_date + timedelta(days=holiday.days_after_easter)
+        holiday_date = original_date
         if shift_applies and holiday.days_to_sum is not None and holiday_date.weekday() != holiday.days_to_sum:
             holiday_date = next_weekday(holiday_date, holiday.days_to_sum)
-        holidays.append(_nt_holiday(date=holiday_date, celebration=holiday.celebration))
+        holidays.append(_nt_holiday(
+            date=holiday_date,
+            celebration=holiday.celebration,
+            original_date=original_date,
+            is_shifted=holiday_date != original_date,
+            kind="easter",
+        ))
 
     holidays.sort(key=lambda holiday: holiday.date)
     return tuple(holidays)
@@ -256,8 +303,12 @@ def get_colombia_holidays_by_year(year: Union[int, str]) -> List[Holiday]:
 
     Ejemplo::
 
-        >>> get_colombia_holidays_by_year(2026)[0]
-        Holiday(date=datetime.date(2026, 1, 1), celebration='Año Nuevo')
+        >>> holidays = get_colombia_holidays_by_year(2026)
+        >>> holidays[0].date, holidays[0].celebration
+        (datetime.date(2026, 1, 1), 'Año Nuevo')
+        >>> # Reyes Magos 2026: el 6 de enero es martes y se traslada al lunes 12.
+        >>> holidays[1].original_date, holidays[1].date, holidays[1].is_shifted, holidays[1].kind
+        (datetime.date(2026, 1, 6), datetime.date(2026, 1, 12), True, 'movable')
 
     :param year: año a consultar, entre 1970 y 9999. Se aceptan enteros
         y cadenas numéricas (``"2026"``); los ``float`` se rechazan para
@@ -341,8 +392,8 @@ def get_holiday(d: DateLike) -> Optional[Holiday]:
     Ejemplo::
 
         >>> from datetime import date
-        >>> get_holiday(date(2026, 7, 20))
-        Holiday(date=datetime.date(2026, 7, 20), celebration='Día de la Independencia')
+        >>> get_holiday(date(2026, 7, 20)).celebration
+        'Día de la Independencia'
         >>> get_holiday(date(2026, 7, 21)) is None
         True
 
@@ -370,8 +421,9 @@ def next_holiday(d: DateLike) -> Holiday:
     Ejemplo::
 
         >>> from datetime import date
-        >>> next_holiday(date(2026, 12, 26))
-        Holiday(date=datetime.date(2027, 1, 1), celebration='Año Nuevo')
+        >>> holiday = next_holiday(date(2026, 12, 26))
+        >>> holiday.date, holiday.celebration
+        (datetime.date(2027, 1, 1), 'Año Nuevo')
 
     :param d: fecha de referencia (excluida del resultado); se acepta
         también ``datetime``.
@@ -390,6 +442,41 @@ def next_holiday(d: DateLike) -> Holiday:
                 return holiday
         year += 1
     raise ValueError("No hay festivos posteriores a la fecha dentro del rango soportado")
+
+def previous_holiday(d: DateLike) -> Holiday:
+    """Devuelve el festivo más reciente estrictamente anterior a una fecha.
+
+    Es el simétrico de :func:`next_holiday`: si no hay festivos previos en
+    el año, continúa con el anterior (el resultado puede pertenecer a otro
+    año). Útil para reportes del tipo "días transcurridos desde el último
+    festivo" o para ubicar el puente anterior a una fecha de corte.
+
+    Ejemplo::
+
+        >>> from datetime import date
+        >>> holiday = previous_holiday(date(2026, 1, 5))
+        >>> holiday.date, holiday.celebration
+        (datetime.date(2026, 1, 1), 'Año Nuevo')
+        >>> previous_holiday(date(2026, 1, 1)).date
+        datetime.date(2025, 12, 25)
+
+    :param d: fecha de referencia (excluida del resultado); se acepta
+        también ``datetime``.
+    :type d: datetime.date or datetime.datetime
+    :returns: el último ``Holiday`` con fecha anterior a ``d``.
+    :rtype: Holiday
+    :raises TypeError: si ``d`` no es un objeto ``date`` ni ``datetime``.
+    :raises ValueError: si el año de ``d`` es anterior a 1970, o si no hay
+        festivos anteriores dentro del rango soportado (desde 1970).
+    """
+    d = _ensure_date(d)
+    year = d.year
+    while year >= 1970:
+        for holiday in reversed(_get_holidays(year)):
+            if holiday.date < d:
+                return holiday
+        year -= 1
+    raise ValueError("No hay festivos anteriores a la fecha dentro del rango soportado")
 
 def get_holidays_between(start: DateLike, end: DateLike) -> List[Holiday]:
     """Devuelve los festivos dentro de un rango de fechas, inclusivo.
@@ -425,6 +512,36 @@ def get_holidays_between(start: DateLike, end: DateLike) -> List[Holiday]:
             if start <= holiday.date <= end:
                 holidays.append(holiday)
     return holidays
+
+def _add_business_days_impl(d: date, n: int, is_business: Callable[[date], bool]) -> date:
+    """Desplaza ``n`` días hábiles según el predicado ``is_business``.
+
+    Lógica compartida entre :func:`add_business_days` y
+    :class:`HolidayCalendar`, que difieren solo en cómo deciden si un día
+    es hábil.
+    """
+    step = timedelta(days=1 if n >= 0 else -1)
+    remaining = abs(n)
+    while remaining > 0:
+        d += step
+        if is_business(d):
+            remaining -= 1
+    return d
+
+def _business_days_between_impl(start: date, end: date, is_business: Callable[[date], bool]) -> int:
+    """Cuenta días hábiles en [start, end] según el predicado ``is_business``.
+
+    Lógica compartida entre :func:`business_days_between` y
+    :class:`HolidayCalendar`.
+    """
+    count = 0
+    d = start
+    one_day = timedelta(days=1)
+    while d <= end:
+        if is_business(d):
+            count += 1
+        d += one_day
+    return count
 
 def is_business_day(d: DateLike, include_saturday: bool = False) -> bool:
     """Indica si una fecha es día hábil en Colombia.
@@ -496,13 +613,9 @@ def add_business_days(d: DateLike, n: int, include_saturday: bool = False) -> da
     if isinstance(n, bool) or not isinstance(n, int):
         raise TypeError("El número de días debe ser un entero")
 
-    step = timedelta(days=1 if n >= 0 else -1)
-    remaining = abs(n)
-    while remaining > 0:
-        d += step
-        if is_business_day(d, include_saturday=include_saturday):
-            remaining -= 1
-    return d
+    return _add_business_days_impl(
+        d, n, lambda day: is_business_day(day, include_saturday=include_saturday)
+    )
 
 def business_days_between(start: DateLike, end: DateLike, include_saturday: bool = False) -> int:
     """Cuenta los días hábiles de un rango de fechas, inclusivo.
@@ -538,14 +651,9 @@ def business_days_between(start: DateLike, end: DateLike, include_saturday: bool
     if start > end:
         raise ValueError("La fecha inicial debe ser menor o igual a la final")
 
-    count = 0
-    d = start
-    one_day = timedelta(days=1)
-    while d <= end:
-        if is_business_day(d, include_saturday=include_saturday):
-            count += 1
-        d += one_day
-    return count
+    return _business_days_between_impl(
+        start, end, lambda day: is_business_day(day, include_saturday=include_saturday)
+    )
 
 def business_days_until(
     d: DateLike,
@@ -605,3 +713,457 @@ def business_days_until(
     if start > d:
         return 0
     return business_days_between(start, d, include_saturday=include_saturday)
+
+def _long_weekends_impl(
+    year_holidays: Iterable[Holiday],
+    is_business: Callable[[date], bool],
+    holidays_between: Callable[[date, date], List[Holiday]],
+) -> List[LongWeekend]:
+    """Detecta puentes a partir de una lista de festivos y un predicado.
+
+    Para cada festivo expande hacia atrás y hacia adelante el bloque de
+    días no hábiles consecutivos que lo contiene y conserva los bloques
+    de 3 o más días. Lógica compartida entre :func:`long_weekends` y
+    :class:`HolidayCalendar`. La expansión se detiene en los bordes del
+    rango soportado (1970-9999) para no evaluar fechas fuera de él.
+    """
+    one_day = timedelta(days=1)
+    blocks = []
+    seen_starts = set()
+    for holiday in year_holidays:
+        start = holiday.date
+        while True:
+            prev = start - one_day
+            if prev.year < 1970 or is_business(prev):
+                break
+            start = prev
+        if start in seen_starts:
+            continue
+        seen_starts.add(start)
+        end = holiday.date
+        while True:
+            nxt = end + one_day
+            if nxt.year > 9999 or is_business(nxt):
+                break
+            end = nxt
+        days = (end - start).days + 1
+        if days < 3:
+            continue
+        blocks.append(_nt_long_weekend(
+            start=start, end=end, days=days, holidays=tuple(holidays_between(start, end))
+        ))
+    blocks.sort(key=lambda block: block.start)
+    return blocks
+
+def long_weekends(year: Union[int, str], include_saturday: bool = False) -> List[LongWeekend]:
+    """Devuelve los puentes (fines de semana largos) de un año.
+
+    Un puente es un bloque de 3 o más días no hábiles consecutivos que
+    contiene al menos un festivo: el clásico sábado-domingo-lunes festivo
+    de la Ley Emiliani, un viernes festivo seguido de fin de semana, o la
+    Semana Santa (jueves a domingo, 4 días). Útil para planear turnos,
+    mantenimientos, campañas de turismo o la logística de RR. HH.
+
+    Los bloques pueden extenderse a días de años vecinos (p. ej. un
+    puente de Año Nuevo que empieza el 30 de diciembre anterior), pero
+    siempre contienen al menos un festivo del año consultado.
+
+    Ejemplo::
+
+        >>> puentes = long_weekends(2026)
+        >>> len(puentes)
+        16
+        >>> puentes[0].start, puentes[0].end, puentes[0].days
+        (datetime.date(2026, 1, 10), datetime.date(2026, 1, 12), 3)
+        >>> [h.celebration for h in puentes[2].holidays]
+        ['Jueves Santo', 'Viernes Santo']
+
+    :param year: año a consultar, entre 1970 y 9999 (mismas reglas de
+        validación que :func:`get_colombia_holidays_by_year`).
+    :type year: int or str
+    :param include_saturday: si es ``True``, los sábados no festivos
+        cuentan como hábiles y cortan los bloques (un lunes festivo deja
+        de formar puente de 3 días). Por defecto ``False``.
+    :type include_saturday: bool
+    :returns: lista de :data:`LongWeekend` ordenados por fecha de inicio.
+    :rtype: list of LongWeekend
+    :raises TypeError: si ``year`` no es un entero ni una cadena numérica.
+    :raises ValueError: si ``year`` está fuera del rango [1970, 9999].
+    """
+    year_holidays = get_colombia_holidays_by_year(year)
+    return _long_weekends_impl(
+        year_holidays,
+        lambda day: is_business_day(day, include_saturday=include_saturday),
+        get_holidays_between,
+    )
+
+def _holidays_for_years(years: Union[int, str, Iterable[Union[int, str]]]) -> List[Holiday]:
+    """Normaliza el argumento ``years`` de los exports a una lista de festivos.
+
+    Acepta un año suelto (``int`` o ``str``) o un iterable de años; valida
+    cada año con las mismas reglas del API público, ordena por fecha y
+    elimina duplicados (por si se repite un año).
+    """
+    if isinstance(years, (int, str)):
+        years = [years]
+    try:
+        iterator = iter(years)
+    except TypeError:
+        raise TypeError("years debe ser un año o un iterable de años")
+
+    holidays = []
+    for year in iterator:
+        holidays.extend(get_colombia_holidays_by_year(year))
+    holidays.sort(key=lambda holiday: holiday.date)
+    return list(dict.fromkeys(holidays))
+
+def to_json(years: Union[int, str, Iterable[Union[int, str]]], indent: Optional[int] = 2) -> str:
+    """Exporta los festivos de uno o varios años como una cadena JSON.
+
+    Cada festivo se serializa con sus metadatos completos: fecha efectiva
+    (``date``), nombre (``celebration``), fecha natural antes del traslado
+    (``original_date``), si fue trasladado (``is_shifted``) y su tipo
+    (``kind``). Las fechas van en formato ISO 8601 (``YYYY-MM-DD``) y los
+    acentos se conservan (no se escapan como ``\\uXXXX``), listo para
+    consumir desde un front-end o una API.
+
+    Ejemplo::
+
+        >>> import json
+        >>> data = json.loads(to_json(2026))
+        >>> len(data)
+        19
+        >>> data[0]['date'], data[0]['celebration']
+        ('2026-01-01', 'Año Nuevo')
+
+    :param years: un año (``int`` o ``str``) o un iterable de años.
+    :type years: int or str or iterable
+    :param indent: sangría del JSON generado; ``None`` produce una sola
+        línea compacta. Por defecto 2.
+    :type indent: int or None
+    :returns: cadena JSON con la lista de festivos ordenada por fecha.
+    :rtype: str
+    :raises TypeError: si algún año no es un entero ni una cadena numérica.
+    :raises ValueError: si algún año está fuera del rango [1970, 9999].
+    """
+    holidays = _holidays_for_years(years)
+    payload = [
+        {
+            "date": holiday.date.isoformat(),
+            "celebration": holiday.celebration,
+            "original_date": holiday.original_date.isoformat(),
+            "is_shifted": holiday.is_shifted,
+            "kind": holiday.kind,
+        }
+        for holiday in holidays
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=indent)
+
+def _ical_escape(text: str) -> str:
+    """Escapa un valor de texto según RFC 5545 (comas, puntos y comas, saltos)."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
+
+def to_ical(years: Union[int, str, Iterable[Union[int, str]]]) -> str:
+    """Exporta los festivos como un calendario iCalendar (``.ics``).
+
+    Genera un ``VCALENDAR`` con un evento de día completo (``VEVENT`` con
+    ``DTSTART;VALUE=DATE``) por festivo, importable en Google Calendar,
+    Outlook o Apple Calendar. Los eventos se marcan ``TRANSP:TRANSPARENT``
+    para que no bloqueen disponibilidad, y los UID son deterministas: el
+    mismo año produce siempre el mismo archivo (reimportar actualiza en
+    vez de duplicar). Las líneas van separadas por CRLF según RFC 5545.
+
+    Ejemplo::
+
+        >>> ics = to_ical(2026)
+        >>> ics.splitlines()[0]
+        'BEGIN:VCALENDAR'
+        >>> ics.count('BEGIN:VEVENT')
+        19
+
+    :param years: un año (``int`` o ``str``) o un iterable de años.
+    :type years: int or str or iterable
+    :returns: contenido del archivo ``.ics`` como cadena.
+    :rtype: str
+    :raises TypeError: si algún año no es un entero ni una cadena numérica.
+    :raises ValueError: si algún año está fuera del rango [1970, 9999].
+    """
+    holidays = _holidays_for_years(years)
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//holidays_co_full//Festivos de Colombia//ES",
+        "CALSCALE:GREGORIAN",
+    ]
+    for index, holiday in enumerate(holidays):
+        lines.extend([
+            "BEGIN:VEVENT",
+            "UID:{:%Y%m%d}-{}@holidays-co-full".format(holiday.date, index),
+            "DTSTAMP:{:%Y%m%d}T000000Z".format(holiday.date),
+            "DTSTART;VALUE=DATE:{:%Y%m%d}".format(holiday.date),
+            "DTEND;VALUE=DATE:{:%Y%m%d}".format(holiday.date + timedelta(days=1)),
+            "SUMMARY:" + _ical_escape(holiday.celebration),
+            "TRANSP:TRANSPARENT",
+            "END:VEVENT",
+        ])
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
+
+def custom_business_day(
+    start_year: Optional[int] = None,
+    end_year: Optional[int] = None,
+    include_saturday: bool = False,
+):
+    """Devuelve un ``CustomBusinessDay`` de pandas con los festivos colombianos.
+
+    Permite usar el calendario colombiano directamente en pandas::
+
+        import pandas as pd
+        import holidays_co_full
+
+        cbd = holidays_co_full.custom_business_day()
+        pd.date_range("2026-07-01", periods=10, freq=cbd)  # días hábiles CO
+        pd.Timestamp("2026-07-10") + 1 * cbd               # siguiente hábil
+
+    Requiere tener pandas instalado (``pip install holidays_co_full[pandas]``);
+    el núcleo de la librería sigue sin dependencias.
+
+    :param start_year: primer año cuyos festivos se cargan en el offset.
+        Por defecto, el año actual menos 1.
+    :type start_year: int or None
+    :param end_year: último año cargado (inclusive). Por defecto, el año
+        actual más 5. Fechas fuera de [start_year, end_year] no conocen
+        los festivos, así que el rango debe cubrir el periodo a analizar.
+    :type end_year: int or None
+    :param include_saturday: si es ``True``, los sábados no festivos
+        cuentan como hábiles. Por defecto ``False``.
+    :type include_saturday: bool
+    :returns: un ``pandas.tseries.offsets.CustomBusinessDay`` configurado.
+    :raises ImportError: si pandas no está instalado.
+    :raises TypeError: si los años no son enteros.
+    :raises ValueError: si los años están fuera de rango o en desorden.
+    """
+    try:
+        from pandas.tseries.offsets import CustomBusinessDay
+    except ImportError:
+        raise ImportError(
+            "custom_business_day requiere pandas; instálelo con "
+            "'pip install pandas' o 'pip install holidays_co_full[pandas]'"
+        )
+
+    current_year = date.today().year
+    if start_year is None:
+        start_year = current_year - 1
+    if end_year is None:
+        end_year = current_year + 5
+    for value in (start_year, end_year):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("Los años deben ser enteros")
+    if start_year < 1970 or end_year > 9999:
+        raise ValueError("El año debe ser mayor a 1969 y menor a 10000")
+    if start_year > end_year:
+        raise ValueError("El año inicial debe ser menor o igual al final")
+
+    holiday_dates = [
+        holiday.date
+        for year in range(start_year, end_year + 1)
+        for holiday in _get_holidays(year)
+    ]
+    weekmask = "Mon Tue Wed Thu Fri Sat" if include_saturday else "Mon Tue Wed Thu Fri"
+    return CustomBusinessDay(holidays=holiday_dates, weekmask=weekmask)
+
+class HolidayCalendar:
+    """Calendario de días hábiles configurable sobre los festivos de Colombia.
+
+    Evita repetir ``include_saturday=...`` en cada llamada y permite
+    declarar días no laborables propios de una organización (cierres de
+    fin de año, días de la familia, aniversarios de la empresa) que las
+    funciones de días hábiles tratan igual que un festivo. Los festivos
+    oficiales nacionales siempre están incluidos.
+
+    Los días extra aparecen en las consultas del calendario como
+    ``Holiday`` con ``kind='extra'``; si un día extra coincide con un
+    festivo oficial, prevalece el festivo.
+
+    Ejemplo::
+
+        >>> from datetime import date
+        >>> cal = HolidayCalendar(extra_non_working=[(date(2026, 12, 24), 'Cierre de fin de año')])
+        >>> cal.is_business_day(date(2026, 12, 24))
+        False
+        >>> cal.get_holiday(date(2026, 12, 24)).celebration
+        'Cierre de fin de año'
+        >>> cal.add_business_days(date(2026, 12, 23), 1)
+        datetime.date(2026, 12, 28)
+
+    :param include_saturday: si es ``True``, los sábados no festivos
+        cuentan como hábiles en todos los métodos. Por defecto ``False``.
+    :type include_saturday: bool
+    :param extra_non_working: días no laborables adicionales. Acepta un
+        iterable de fechas (``date``/``datetime``), de tuplas
+        ``(fecha, nombre)``, o un dict ``{fecha: nombre}``. Las fechas sin
+        nombre reciben ``"Día no laborable"``.
+    :raises TypeError: si algún elemento no es una fecha válida o el
+        nombre no es una cadena.
+    :raises ValueError: si alguna fecha extra es anterior a 1970.
+    """
+
+    _DEFAULT_EXTRA_NAME = "Día no laborable"
+
+    def __init__(self, include_saturday: bool = False, extra_non_working=None) -> None:
+        self.include_saturday = bool(include_saturday)
+        extras = {}
+        if extra_non_working is not None:
+            if isinstance(extra_non_working, dict):
+                items = extra_non_working.items()
+            else:
+                items = extra_non_working
+            for item in items:
+                if isinstance(item, tuple):
+                    if len(item) != 2:
+                        raise TypeError(
+                            "Cada día extra debe ser una fecha o una tupla (fecha, nombre)"
+                        )
+                    raw_date, name = item
+                    if not isinstance(name, str):
+                        raise TypeError("El nombre del día extra debe ser una cadena")
+                else:
+                    raw_date, name = item, self._DEFAULT_EXTRA_NAME
+                extras[_ensure_date(raw_date)] = name
+        #: Días no laborables propios del calendario: ``{date: nombre}``.
+        self.extra_non_working = extras
+
+    def _extra_holiday(self, d: date) -> Holiday:
+        """Construye el ``Holiday`` sintético de un día extra del calendario."""
+        return _nt_holiday(
+            date=d, celebration=self.extra_non_working[d],
+            original_date=d, is_shifted=False, kind="extra",
+        )
+
+    def _year_holidays(self, year: int) -> List[Holiday]:
+        """Festivos oficiales + días extra de un año validado, ordenados."""
+        official_dates = _holiday_dates(year)
+        merged = list(_get_holidays(year))
+        merged.extend(
+            self._extra_holiday(d)
+            for d in self.extra_non_working
+            if d.year == year and d not in official_dates
+        )
+        merged.sort(key=lambda holiday: holiday.date)
+        return merged
+
+    def get_holidays_by_year(self, year: Union[int, str]) -> List[Holiday]:
+        """Festivos oficiales y días extra del calendario para un año.
+
+        Mismas reglas de validación que
+        :func:`get_colombia_holidays_by_year`.
+        """
+        get_colombia_holidays_by_year(year)  # valida tipo y rango
+        return self._year_holidays(int(year))
+
+    def is_holiday_date(self, d: DateLike) -> bool:
+        """Indica si la fecha es festivo oficial o día extra del calendario."""
+        d = _ensure_date(d)
+        return d in _holiday_dates(d.year) or d in self.extra_non_working
+
+    def get_holiday(self, d: DateLike) -> Optional[Holiday]:
+        """Festivo oficial o día extra celebrado en la fecha, o ``None``."""
+        d = _ensure_date(d)
+        official = get_holiday(d)
+        if official is not None:
+            return official
+        if d in self.extra_non_working:
+            return self._extra_holiday(d)
+        return None
+
+    def next_holiday(self, d: DateLike) -> Holiday:
+        """Próximo festivo o día extra estrictamente posterior a la fecha."""
+        d = _ensure_date(d)
+        year = d.year
+        while year <= 9999:
+            for holiday in self._year_holidays(year):
+                if holiday.date > d:
+                    return holiday
+            year += 1
+        raise ValueError("No hay festivos posteriores a la fecha dentro del rango soportado")
+
+    def previous_holiday(self, d: DateLike) -> Holiday:
+        """Festivo o día extra más reciente estrictamente anterior a la fecha."""
+        d = _ensure_date(d)
+        year = d.year
+        while year >= 1970:
+            for holiday in reversed(self._year_holidays(year)):
+                if holiday.date < d:
+                    return holiday
+            year -= 1
+        raise ValueError("No hay festivos anteriores a la fecha dentro del rango soportado")
+
+    def get_holidays_between(self, start: DateLike, end: DateLike) -> List[Holiday]:
+        """Festivos oficiales y días extra dentro de un rango, inclusivo."""
+        start = _ensure_date(start)
+        end = _ensure_date(end)
+        if start > end:
+            raise ValueError("La fecha inicial debe ser menor o igual a la final")
+
+        holidays = []
+        for year in range(start.year, end.year + 1):
+            for holiday in self._year_holidays(year):
+                if start <= holiday.date <= end:
+                    holidays.append(holiday)
+        return holidays
+
+    def is_business_day(self, d: DateLike) -> bool:
+        """Día hábil según el calendario: descuenta también los días extra."""
+        d = _ensure_date(d)
+        if not is_business_day(d, include_saturday=self.include_saturday):
+            return False
+        return d not in self.extra_non_working
+
+    def add_business_days(self, d: DateLike, n: int) -> date:
+        """Suma o resta ``n`` días hábiles según el calendario."""
+        d = _ensure_date(d)
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise TypeError("El número de días debe ser un entero")
+        return _add_business_days_impl(d, n, self.is_business_day)
+
+    def business_days_between(self, start: DateLike, end: DateLike) -> int:
+        """Cuenta los días hábiles del rango inclusivo según el calendario."""
+        start = _ensure_date(start)
+        end = _ensure_date(end)
+        if start > end:
+            raise ValueError("La fecha inicial debe ser menor o igual a la final")
+        return _business_days_between_impl(start, end, self.is_business_day)
+
+    def business_days_until(
+        self,
+        d: DateLike,
+        from_date: Optional[DateLike] = None,
+        include_today: bool = False,
+    ) -> int:
+        """Días hábiles restantes hasta la fecha objetivo según el calendario.
+
+        Misma semántica que :func:`business_days_until` (la fecha de
+        referencia no cuenta salvo ``include_today=True``).
+        """
+        d = _ensure_date(d)
+        if from_date is None:
+            from_date = date.today()
+        from_date = _ensure_date(from_date)
+        if d < from_date:
+            raise ValueError("La fecha objetivo debe ser igual o posterior a la fecha de referencia")
+
+        start = from_date if include_today else from_date + timedelta(days=1)
+        if start > d:
+            return 0
+        return self.business_days_between(start, d)
+
+    def long_weekends(self, year: Union[int, str]) -> List[LongWeekend]:
+        """Puentes del año según el calendario (los días extra pueden alargarlos)."""
+        return _long_weekends_impl(
+            self.get_holidays_by_year(year), self.is_business_day, self.get_holidays_between
+        )
